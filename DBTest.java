@@ -5,7 +5,9 @@
 //Compiled with javac DBTest.java
 // Executed with java -classpath ".:sqlite-jdbc-3.50.3.0.jar" --enable-native-access=ALL-UNNAMED DBTest
 
+import java.io.*;
 import java.sql.*;
+import java.util.*;
 
 public class DBTest {
     /**
@@ -35,7 +37,24 @@ public class DBTest {
         createTableSmt = con.createStatement();
         createTableSmt.executeUpdate(
                 "CREATE TABLE Customer(" + "TUID INTEGER PRIMARY KEY AUTOINCREMENT, " + "Name VARCHAR(60));");
-        // Don't add any records, since they will be added later via File IO
+        // Files will be added later via File IO
+    }
+
+    /**
+     * Populates the Customer table based on customer names
+     * 
+     * @param customers ArrayList of customer names
+     */
+    private static void populateCustomerTable(ArrayList<String> customers) {
+        try (Connection con = getConnection();
+                PreparedStatement prep = con.prepareStatement("INSERT INTO Customer(Name) VALUES(?);")) {
+            for (String customer : customers) {
+                prep.setString(1, customer);
+                prep.executeUpdate();
+            }
+        } catch (SQLException | ClassNotFoundException e) {
+            e.printStackTrace();
+        }
     }
 
     /**
@@ -150,7 +169,42 @@ public class DBTest {
         createTableSmt.executeUpdate("CREATE TABLE Vehicles(" + "TUID INTEGER PRIMARY KEY AUTOINCREMENT, "
                 + "Customer_TUID INTEGER, " + "Vehicle_Description VARCHAR(60), "
                 + "FOREIGN KEY (Customer_TUID) REFERENCES Customer(TUID));");
-        // Don't add any records, since they will be added later via File IO
+        // Files will be added later via File IO
+    }
+
+    /**
+     * Populates the Vehicles table based on customer name and vehicle description
+     * 
+     * @param vehicles ArrayList of vehicle entries in the format
+     *                 "CustomerName\tVehicleDescription"
+     */
+    private static void populateVehiclesTable(ArrayList<String> vehicles) {
+        // Populate vehicles table based on customer TUID and vehicle description
+        try (Connection con = getConnection();
+                PreparedStatement prep = con
+                        .prepareStatement("INSERT INTO Vehicles(Customer_TUID, Vehicle_Description) VALUES(?, ?);")) {
+            for (String vehicle : vehicles) {
+                // Vehicle format is "CustomerName VehicleName"
+                String[] parts = vehicle.split("\t");
+                if (parts.length == 2) {
+                    String customerName = parts[0].trim();
+                    String vehicleDesc = parts[1].trim();
+                    // Get the Customer_TUID based on the customer name
+                    PreparedStatement custPrep = con.prepareStatement("SELECT TUID FROM Customer WHERE Name = ?;");
+                    custPrep.setString(1, customerName);
+                    ResultSet custRes = custPrep.executeQuery();
+                    if (custRes.next()) {
+                        int customerTUID = custRes.getInt("TUID");
+                        // Insert the vehicle record
+                        prep.setInt(1, customerTUID);
+                        prep.setString(2, vehicleDesc);
+                        prep.executeUpdate();
+                    }
+                }
+            }
+        } catch (SQLException | ClassNotFoundException e) {
+            e.printStackTrace();
+        }
     }
 
     /**
@@ -319,8 +373,55 @@ public class DBTest {
         con.close();
     }
 
+    private static void clearDatabase() throws ClassNotFoundException, SQLException {
+        Connection con = getConnection();
+        Statement state = con.createStatement();
+        state.executeUpdate("DROP TABLE IF EXISTS Schedule;");
+        state.executeUpdate("DROP TABLE IF EXISTS Vehicles;");
+        state.executeUpdate("DROP TABLE IF EXISTS Services;");
+        state.executeUpdate("DROP TABLE IF EXISTS Bays;");
+        state.executeUpdate("DROP TABLE IF EXISTS Mechanics;");
+        state.executeUpdate("DROP TABLE IF EXISTS Customer;");
+        state.close();
+        con.close();
+    }
+
+    private static void readIOFile() {
+        Scanner scanner = new Scanner(System.in);
+        System.out.println("Enter the input file name: ");
+        String fileName = scanner.nextLine();
+        scanner.close();
+        File file = new File(fileName);
+        ArrayList<String> lines = new ArrayList<>();
+        try (BufferedReader br = new BufferedReader(new FileReader(file))) {
+            String line;
+            while ((line = br.readLine()) != null) {
+                lines.add(line);
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+
+        ArrayList<String> customers = new ArrayList<>();
+        ArrayList<String> vehicles = new ArrayList<>();
+        ArrayList<String> services = new ArrayList<>();
+        for (String line : lines) {
+            if (line.charAt(0) == 'C') {
+                customers.add(line.substring(2).trim());
+            } else if (line.charAt(0) == 'V') {
+                vehicles.add(line.substring(2).trim());
+            } else if (line.charAt(0) == 'S') {
+                services.add(line.substring(2).trim());
+            }
+        }
+
+        populateCustomerTable(customers);
+        populateVehiclesTable(vehicles);
+
+    }
+
     public static void main(String args[]) {
-        boolean DBExists = false;
+        boolean DBExists = false; // IMPLEMENT LATER TO CHECK IF DB FILE EXISTS
         try {
             getConnection();
             buildDatabase(DBExists);
@@ -328,5 +429,6 @@ public class DBTest {
         } catch (Exception e) {
             e.printStackTrace();
         }
+        readIOFile();
     }
 }
